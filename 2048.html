@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#262626">
+<title>2048</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{width:100%;height:100%;overflow:hidden;background:#262626;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;-webkit-user-select:none;user-select:none;touch-action:none;}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+.screen.hidden{display:none;}
+#mode-screen{gap:13px;}
+.logo{font-size:clamp(2.8rem,13vw,4.5rem);font-weight:800;color:#FDCB32;letter-spacing:-3px;margin-bottom:10px;line-height:1;}
+.hint{color:#555;font-size:0.8rem;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px;}
+.mode-btn{width:185px;padding:13px;background:#333;border:1.5px solid #484848;border-radius:100px;color:#aaa;font-family:inherit;font-size:1.15rem;font-weight:600;letter-spacing:2px;cursor:pointer;transition:background .1s,transform .1s,color .1s;}
+.mode-btn:hover{background:#3e3e3e;color:#ddd;}
+.mode-btn:active{transform:scale(.96);}
+#game-screen{justify-content:flex-start;}
+#top-bar{width:100%;display:flex;justify-content:space-between;align-items:center;padding:12px 18px 6px;flex-shrink:0;}
+.nav-btn{background:none;border:none;color:#555;font-size:1.5rem;line-height:1;cursor:pointer;padding:6px 10px;font-family:inherit;transition:color .1s;}
+.nav-btn:hover{color:#888;}
+.nav-btn:active{color:#fff;}
+#score-wrap{text-align:center;}
+#score-label{color:#444;font-size:0.62rem;text-transform:uppercase;letter-spacing:2px;font-weight:600;}
+#score-val{color:#fff;font-size:1.45rem;font-weight:700;line-height:1.15;min-width:80px;text-align:center;}
+#grid-wrap{flex:1;width:100%;display:flex;align-items:center;justify-content:center;}
+#grid{display:grid;}
+.cell{border-radius:50%;background:#333;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;}
+.cell.pop{animation:pop .2s cubic-bezier(.34,1.56,.64,1) both;}
+@keyframes pop{0%{transform:scale(.05);opacity:0;}100%{transform:scale(1);opacity:1;}}
+#overlay{position:fixed;inset:0;background:rgba(38,38,38,.9);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:15px;z-index:50;opacity:0;pointer-events:none;transition:opacity .25s;}
+#overlay.show{opacity:1;pointer-events:all;}
+#ov-title{font-size:2.1rem;font-weight:800;letter-spacing:-1px;}
+#ov-sub{color:#666;font-size:.95rem;margin-bottom:4px;}
+.ov-btn{width:170px;padding:12px;background:#333;border:1.5px solid #484848;border-radius:100px;color:#aaa;font-family:inherit;font-size:.98rem;font-weight:600;cursor:pointer;transition:background .1s,color .1s;}
+.ov-btn:hover{background:#3e3e3e;color:#ddd;}
+.ov-btn:active{background:#484848;}
+#ov-continue{display:none;}
+</style>
+</head>
+<body>
+
+<div id="mode-screen" class="screen">
+  <div class="logo">2048</div>
+  <div class="hint">Spielmodus wählen</div>
+  <button class="mode-btn" onclick="startGame(3)">3 × 3</button>
+  <button class="mode-btn" onclick="startGame(4)">4 × 4</button>
+  <button class="mode-btn" onclick="startGame(5)">5 × 5</button>
+  <button class="mode-btn" onclick="startGame(6)">6 × 6</button>
+</div>
+
+<div id="game-screen" class="screen hidden">
+  <div id="top-bar">
+    <button class="nav-btn" onclick="backToMenu()">&#8592;</button>
+    <div id="score-wrap">
+      <div id="score-label">Punkte</div>
+      <div id="score-val">0</div>
+    </div>
+    <button class="nav-btn" onclick="restartGame()">&#8635;</button>
+  </div>
+  <div id="grid-wrap"><div id="grid"></div></div>
+</div>
+
+<div id="overlay">
+  <div id="ov-title">Game Over</div>
+  <div id="ov-sub"></div>
+  <button id="ov-continue" class="ov-btn" onclick="continueGame()">Weiter spielen</button>
+  <button class="ov-btn" onclick="restartGame()">Nochmal</button>
+  <button class="ov-btn" onclick="backToMenu()">Men&#252;</button>
+</div>
+
+<script>
+const COLORS={2:'#0069FF',4:'#009CFF',8:'#1FADFF',16:'#1FD7FF',32:'#1FD7D1',64:'#1FC3A7',128:'#1FC664',256:'#1FA830',512:'#75C232',1024:'#C1CB32',2048:'#FDCB32',4096:'#FDB000'};
+const getColor=v=>v>=8192?'#FD7500':(COLORS[v]||'#FD7500');
+const FRATIO=[0,.44,.39,.31,.24,.19];
+const $=id=>document.getElementById(id);
+
+let N=4,grid=[],score=0,active=false,won=false,tileSize=0;
+
+function startGame(n){
+  N=n;score=0;won=false;active=true;
+  grid=Array.from({length:N},()=>Array(N).fill(0));
+  $('mode-screen').classList.add('hidden');
+  $('game-screen').classList.remove('hidden');
+  $('overlay').classList.remove('show');
+  buildGrid();
+  addTile();addTile();
+  render();syncScore();
+}
+function restartGame(){$('overlay').classList.remove('show');startGame(N);}
+function backToMenu(){active=false;$('game-screen').classList.add('hidden');$('mode-screen').classList.remove('hidden');$('overlay').classList.remove('show');}
+function continueGame(){$('overlay').classList.remove('show');active=true;}
+
+function buildGrid(){
+  const topH=$('top-bar').offsetHeight;
+  const vw=window.innerWidth,gh=window.innerHeight-topH;
+  const minD=Math.min(vw,gh);
+  const pad=(20/N/100)*minD;
+  const gridPx=Math.min(vw-2*pad,gh-2*pad);
+  const gap=pad*.5;
+  tileSize=(gridPx-(N-1)*gap)/N;
+  const g=$('grid');
+  g.style.gridTemplateColumns='repeat('+N+','+tileSize+'px)';
+  g.style.gridTemplateRows='repeat('+N+','+tileSize+'px)';
+  g.style.gap=gap+'px';
+  g.innerHTML='';
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const d=document.createElement('div');
+    d.className='cell';d.id='t'+r+'_'+c;
+    d.style.width=tileSize+'px';d.style.height=tileSize+'px';
+    g.appendChild(d);
+  }
+}
+
+function render(newCells){
+  newCells=newCells||[];
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const el=$('t'+r+'_'+c),v=grid[r][c];
+    const isNew=newCells.some(function(p){return p[0]===r&&p[1]===c;});
+    drawCell(el,v,isNew);
+  }
+}
+function drawCell(el,v,isNew){
+  el.classList.remove('pop');
+  void el.offsetWidth;
+  if(v===0){
+    el.style.background='#333';el.style.border='none';
+    el.style.fontSize='0';el.style.color='transparent';el.style.letterSpacing='normal';
+    el.textContent='';return;
+  }
+  const col=getColor(v),digs=String(v).length;
+  const fs=tileSize*(FRATIO[Math.min(digs,5)]||.18);
+  const bw=Math.max(1.5,Math.round(fs*.095));
+  const ls=digs>=4?(-(fs*.04).toFixed(1))+'px':'normal';
+  el.style.background='#333';
+  el.style.border=bw+'px solid '+col;
+  el.style.color=col;
+  el.style.fontSize=fs+'px';
+  el.style.letterSpacing=ls;
+  el.style.fontWeight='700';
+  el.style.fontFamily="'Helvetica Neue',Helvetica,Arial,sans-serif";
+  el.textContent=v;
+  if(isNew)el.classList.add('pop');
+}
+function syncScore(){$('score-val').textContent=score;}
+
+function addTile(){
+  var e=[];
+  for(var r=0;r<N;r++)for(var c=0;c<N;c++)if(!grid[r][c])e.push([r,c]);
+  if(!e.length)return null;
+  var pos=e[Math.floor(Math.random()*e.length)];
+  grid[pos[0]][pos[1]]=Math.random()<.9?2:4;return pos;
+}
+function slideLine(line){
+  var nums=line.filter(Boolean),out=[],i=0;
+  while(i<nums.length){
+    if(i+1<nums.length&&nums[i]===nums[i+1]){var m=nums[i]*2;out.push(m);score+=m;i+=2;}
+    else out.push(nums[i++]);
+  }
+  while(out.length<N)out.push(0);return out;
+}
+function doMove(dir){
+  var before=grid.map(function(r){return r.slice();});
+  for(var i=0;i<N;i++){
+    var l,res;
+    if(dir==='left'){grid[i]=slideLine(grid[i]);}
+    else if(dir==='right'){grid[i]=slideLine(grid[i].slice().reverse()).reverse();}
+    else if(dir==='up'){
+      l=grid.map(function(r){return r[i];});
+      res=slideLine(l);
+      grid.forEach(function(r,ri){r[i]=res[ri];});
+    } else if(dir==='down'){
+      l=grid.map(function(r){return r[i];}).reverse();
+      res=slideLine(l).reverse();
+      grid.forEach(function(r,ri){r[i]=res[ri];});
+    }
+  }
+  return grid.some(function(row,r){return row.some(function(v,c){return v!==before[r][c];});});
+}
+function move(dir){
+  if(!active)return;
+  var changed=doMove(dir);if(!changed)return;
+  syncScore();
+  var np=addTile();
+  render(np?[np]:[]);
+  if(!won&&grid.some(function(row){return row.indexOf(2048)>=0;})){
+    won=true;active=false;
+    setTimeout(function(){
+      $('ov-title').textContent='2048! \uD83C\uDF89';$('ov-title').style.color='#FDCB32';
+      $('ov-sub').textContent='Punkte: '+score;$('ov-continue').style.display='block';
+      $('overlay').classList.add('show');
+    },250);return;
+  }
+  if(isGameOver()){
+    active=false;
+    setTimeout(function(){
+      $('ov-title').textContent='Game Over';$('ov-title').style.color='#eee';
+      $('ov-sub').textContent='Punkte: '+score;$('ov-continue').style.display='none';
+      $('overlay').classList.add('show');
+    },250);
+  }
+}
+function isGameOver(){
+  for(var r=0;r<N;r++)for(var c=0;c<N;c++){
+    if(!grid[r][c])return false;
+    if(c+1<N&&grid[r][c]===grid[r][c+1])return false;
+    if(r+1<N&&grid[r][c]===grid[r+1][c])return false;
+  }return true;
+}
+
+var KEYS={ArrowLeft:'left',ArrowRight:'right',ArrowUp:'up',ArrowDown:'down'};
+document.addEventListener('keydown',function(e){
+  if(KEYS[e.key]&&!$('game-screen').classList.contains('hidden')){e.preventDefault();move(KEYS[e.key]);}
+});
+
+var sx=0,sy=0;
+document.addEventListener('touchstart',function(e){sx=e.touches[0].clientX;sy=e.touches[0].clientY;},{passive:true});
+document.addEventListener('touchend',function(e){
+  if($('game-screen').classList.contains('hidden'))return;
+  var dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;
+  var ax=Math.abs(dx),ay=Math.abs(dy);
+  if(Math.max(ax,ay)<20)return;
+  move(ax>ay?(dx>0?'right':'left'):(dy>0?'down':'up'));
+},{passive:true});
+
+var rt;
+window.addEventListener('resize',function(){
+  clearTimeout(rt);rt=setTimeout(function(){
+    if(!$('game-screen').classList.contains('hidden')){buildGrid();render();}
+  },100);
+});
+</script>
+</body>
+</html>
